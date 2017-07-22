@@ -1,0 +1,20 @@
+Unit]
+Description=Simple bodysnatcher service
+After=syslog.target
+
+[Service]
+Environment=LD_LIBRARY_PATH=/usr/local/cuda-8.0/lib64:/home/nvidia/freenect2/lib
+Environment=PYTHONPATH=/home/nvidia/caffelatest/python:$PYTHONPATH
+Environment=DISPLAY=:0.0
+Type=simple
+User=nvidia
+Group=nvidia
+WorkingDirectory=/home/nvidia/bodysnatcher.service
+ExecStart=/home/nvidia/bodysnatcher.service/rundaemon.py
+StandardOutput=syslog
+StandardError=syslog
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
