@@ -7,6 +7,8 @@ import cv2
 import sys
 import json
 
+from .util import flipDepthFrame
+
 from pylibfreenect2 import Freenect2, SyncMultiFrameListener
 from pylibfreenect2 import FrameType, Registration, Frame
 from pylibfreenect2 import CudaKdePacketPipeline
@@ -124,7 +126,10 @@ def computeBackground(listener, registration):
         frames = listener.waitForNewFrame()
         depth = frames["depth"]
         registration.undistortDepth(depth, undistorted)
-        d = undistorted.asarray(np.float32)
+        # kinect flips X axis
+        flipDepthFrame(undistorted)
+
+        d =  undistorted.asarray(np.float32)
         zeros = d.size - np.count_nonzero(d)
         #print('Input:zeros:' + str(zeros) + ' total:' + str(d.size))
         d[d == 0.] = MAX_FLOAT32
@@ -156,6 +161,9 @@ def mainSegment(options = None):
         frames = listener.waitForNewFrame()
         depth = frames["depth"]
         registration.undistortDepth(depth, undistorted)
+        # kinect flips X axis
+        flipDepthFrame(undistorted)
+
         d =  np.copy(undistorted.asarray(np.float32))
         alpha = subtraction(minVal, d)
         if (options and options.get('display')):

@@ -1,6 +1,10 @@
 import numpy as np
 import cv2
 import itertools
+import math
+import sys
+
+from .util import flipDepthFrame
 
 from pylibfreenect2 import Freenect2, SyncMultiFrameListener
 from pylibfreenect2 import FrameType, Registration, Frame
@@ -87,20 +91,28 @@ def shutdownCamera(device):
 
 
 image_points = np.array([
-    [(160, 160)], [(160, 240)], [(160, 320)], [(160, 400)], [(160, 480)], [(160, 560)],
-    [(240, 160)], [(240, 240)], [(240, 320)], [(240, 400)], [(240, 480)], [(240, 560)],
-    [(320, 160)], [(320, 240)], [(320, 320)], [(320, 400)], [(320, 480)], [(320, 560)],
-    [(400, 160)], [(400, 240)], [(400, 320)], [(400, 400)], [(400, 480)], [(400, 560)],
-    [(480, 160)], [(480, 240)], [(480, 320)], [(480, 400)], [(480, 480)], [(480, 560)],
-    [(560, 160)], [(560, 240)], [(560, 320)], [(560, 400)], [(560, 480)], [(560, 560)],
-    [(640, 160)], [(640, 240)], [(640, 320)], [(640, 400)], [(640, 480)], [(640, 560)],
-    [(720, 160)], [(720, 240)], [(720, 320)], [(720, 400)], [(720, 480)], [(720, 560)],
-    [(800, 160)], [(800, 240)], [(800, 320)], [(800, 400)], [(800, 480)], [(800, 560)],
-    [(880, 160)], [(880, 240)], [(880, 320)], [(880, 400)], [(880, 480)], [(880, 560)],
-    [(960, 160)], [(960, 240)], [(960, 320)], [(960, 400)], [(960, 480)], [(960, 560)],
-    [(1040, 160)], [(1040, 240)], [(1040, 320)], [(1040, 400)], [(1040, 480)], [(1040,560)],
-    [(1120, 160)], [(1120, 240)], [(1120, 320)], [(1120, 400)], [(1120, 480)],[(1120,560)]],
-                        dtype="double")
+    (160, 160), (160, 240), (160, 320), (160, 400), (160, 480), (160, 560),
+    (240, 160), (240, 240), (240, 320), (240, 400), (240, 480), (240, 560),
+    (320, 160), (320, 240), (320, 320), (320, 400), (320, 480), (320, 560),
+    (400, 160), (400, 240), (400, 320), (400, 400), (400, 480), (400, 560),
+    (480, 160), (480, 240), (480, 320), (480, 400), (480, 480), (480, 560),
+    (560, 160), (560, 240), (560, 320), (560, 400), (560, 480), (560, 560),
+    (640, 160), (640, 240), (640, 320), (640, 400), (640, 480), (640, 560),
+    (720, 160), (720, 240), (720, 320), (720, 400), (720, 480), (720, 560),
+    (800, 160), (800, 240), (800, 320), (800, 400), (800, 480), (800, 560),
+    (880, 160), (880, 240), (880, 320), (880, 400), (880, 480), (880, 560),
+    (960, 160), (960, 240), (960, 320), (960, 400), (960, 480), (960, 560),
+    (1040, 160), (1040, 240), (1040, 320), (1040, 400), (1040, 480), (1040,560),
+    (1120, 160), (1120, 240), (1120, 320), (1120, 400), (1120, 480),(1120,560)],
+    dtype="double")
+# scan in x axis first (by row, left to right)
+image_points_long_scan = np.reshape(np.reshape(image_points, [6,13,2],
+                                               order='fortran'), [78,1,2])
+
+#scan in reversed 'y' axis (bottom to top, by column)
+image_points_short_scan = np.reshape(np.flip(np.reshape(image_points, [13,6,2],
+                                                        order='c'), axis =1),
+                                     [78,1,2])
 
 
 def compute3DPoints(corners, undistorted, registration):
@@ -113,6 +125,32 @@ def compute3DPoints(corners, undistorted, registration):
     return np.array(result)
 
 criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+
+def nanToNull(x):
+    return None if math.isnan(x) else x
+
+def filterNaN(l):
+    return [[nanToNull(x), nanToNull(y), nanToNull(z)] for [x,y,z] in l]
+
+
+def orderCorners(corners):
+    distance = np.linalg.norm(corners[1:] -corners[:-1], axis=2)
+    shortScan = np.sum(distance[5::6])/12.
+    longScan = np.sum(distance[12::13])/5.
+    if shortScan > longScan:
+        print 'Changing scan order'
+        print shortScan, longScan
+        print distance[5::6]
+        print distance[12::13]
+        # Short side was the principal side to scan because
+        # it found the south-west corner first, and started scanning bottom to
+        # top, using the skinny side.
+        #
+        # Otherwise, it would have scanned top to bottom (left-to right) using
+        # the wide side.
+        return image_points_short_scan
+    else:
+        return image_points_long_scan
 
 def mainCalibrate(options=None):
     counter = 0
@@ -128,36 +166,56 @@ def mainCalibrate(options=None):
        color = frames["color"]
        depth = frames["depth"]
        registration.apply(color, depth, undistorted, registered)
-       regArray = registered.asarray(np.uint8)
+
+       # kinect flips X axis
+       regArray = np.flip(registered.asarray(np.uint8), 1)
+       flipDepthFrame(undistorted)
+
        gray = cv2.cvtColor(regArray,cv2.COLOR_BGR2GRAY)
        ret, corners = cv2.findChessboardCorners(gray, (6, 13),None)
-
+       print corners
        if ret == True:
            print 'got it'
+           points2D = orderCorners(corners)
+           print points2D
            corners2 = cv2.cornerSubPix(gray, corners, (11, 11), (-1,-1),
                                        criteria)
            points3D = compute3DPoints(corners2, undistorted, registration)
            print points3D
-           distortion= np.zeros((4,1))
-           ok, rot, trans, inl = cv2.solvePnPRansac(points3D, image_points,
-                                                    camera_matrix, distortion,
-                                                    reprojectionError=2.0,
-                                                    iterationsCount=1000,
-                                                    flags=cv2.SOLVEPNP_ITERATIVE)
-           if ok == True:
-               print 'Rotation {0}'.format(rot)
-               print 'Translation {0}'.format(trans)
-               print 'Inliers# {0}'. format(len(inl))
-               print 'Checking...'
-               all, _ = cv2.projectPoints(points3D, rot, trans, camera_matrix,
-                                          distortion)
-               print all
-               result = {'rotation': list(itertools.chain(*rot.tolist())),
-                         'translation': list(itertools.chain(*trans.tolist())),
-                         'projMat': openGLProjMat(),
-                         'viewMat': openGLViewMat(rot, trans),
-                         'points3D': list(itertools.chain(*points3D.tolist()))}
+           if (options and options['onlyPoints3D'] == True):
+               result = {'points3D':
+                         filterNaN(list(itertools.chain(*points3D.tolist()))),
+                        'points2D': list(itertools.chain(*points2D.tolist()))}
                break
+           else:
+               distortion= np.zeros((4,1))
+               ok, rot, trans, inl = cv2.solvePnPRansac(points3D, points2D,
+                                                        camera_matrix,
+                                                        distortion,
+                                                        reprojectionError=2.0,
+                                                        iterationsCount=1000,
+                                                        flags=cv2
+                                                        .SOLVEPNP_ITERATIVE)
+               print ok
+               if ok == True:
+                   print 'Rotation {0}'.format(rot)
+                   print 'Translation {0}'.format(trans)
+                   print 'Inliers# {0}'. format(len(inl))
+                   print 'Checking...'
+                   all, _ = cv2.projectPoints(points3D, rot, trans,
+                                              camera_matrix, distortion)
+                   print all
+                   result = {'rotation': list(itertools.chain(*rot.tolist())),
+                             'translation': list(itertools.chain(*trans
+                                                                 .tolist())),
+                             'projMat': openGLProjMat(),
+                             'viewMat': openGLViewMat(rot, trans),
+                             'points2D': list(itertools.chain(*points2D
+                                                              .tolist())),
+                             'points3D':
+                             filterNaN(list(itertools.chain(*points3D
+                                                            .tolist())))}
+                   break
 
 #           img = cv2.drawChessboardCorners(regArray, (6, 13), corners2, ret)
 #           cv2.imshow('corners', img)
@@ -173,6 +231,25 @@ def mainCalibrate(options=None):
 
     shutdownCamera(device);
     return result
+
+
+def mainCalibrateProjector(objPoints, imagePoints, shape):
+    print objPoints, imagePoints, shape
+    objPoints = np.array([np.array(xi, dtype=np.float32) for xi in objPoints])
+    imagePoints = np.array([np.array(xi, dtype=np.float32) for xi in imagePoints])
+    shape = (shape[0], shape[1])
+    print 'shape', shape
+    fl = cv2.CALIB_USE_INTRINSIC_GUESS
+    retval, cameraMatrix, distCoeffs, _, _ = cv2.calibrateCamera(objPoints,
+                                                                 imagePoints,
+                                                                 shape,
+                                                                 camera_matrix,
+                                                                 None,
+                                                                 flags=fl)
+    print retval, cameraMatrix, distCoeffs
+    return {'retval': retval,
+            'cameraMatrix': list(itertools.chain(*cameraMatrix.tolist())),
+            'distCoeffs': list(itertools.chain(*distCoeffs.tolist()))}
 
 if __name__ == "__main__":
     mainCalibrate()
