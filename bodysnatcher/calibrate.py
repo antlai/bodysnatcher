@@ -3,6 +3,7 @@ import cv2
 import itertools
 import math
 import sys
+import base64
 
 from .util import flipDepthFrame
 
@@ -152,6 +153,40 @@ def orderCorners(corners):
     else:
         return image_points_long_scan
 
+def mainSnapshot(options=None):
+    pipeline = CudaKdePacketPipeline()
+    fn = Freenect2()
+    device, listener, registration = initCamera(fn, pipeline)
+    warmUp(listener)
+
+    undistorted = Frame(FRAME_WIDTH, FRAME_HEIGHT, 4)
+    registered = Frame(FRAME_WIDTH, FRAME_HEIGHT, 4)
+    result = None
+    while True:
+        frames = listener.waitForNewFrame()
+        color = frames["color"]
+        depth = frames["depth"]
+        registration.apply(color, depth, undistorted, registered)
+
+        # kinect flips X axis
+        regArray = registered.asarray(np.uint8)
+        regArray = np.flip(regArray, 1)
+        imgRGB = cv2.cvtColor(regArray, cv2.COLOR_RGBA2RGB)
+        ret, buf = cv2.imencode(".jpg", imgRGB)
+        if ret == True:
+            data = base64.b64encode(buf)
+            result = {'width': FRAME_WIDTH, 'height': FRAME_HEIGHT,
+                      'data': data}
+            break
+        else:
+            print 'fail'
+        listener.release(frames)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+    shutdownCamera(device);
+    return result
+
+
 def mainCalibrate(options=None):
     counter = 0
     pipeline = CudaKdePacketPipeline()
@@ -171,7 +206,7 @@ def mainCalibrate(options=None):
        regArray = np.flip(registered.asarray(np.uint8), 1)
        flipDepthFrame(undistorted)
 
-       gray = cv2.cvtColor(regArray,cv2.COLOR_BGR2GRAY)
+       gray = cv2.cvtColor(regArray,cv2.COLOR_RGBA2GRAY)
        ret, corners = cv2.findChessboardCorners(gray, (6, 13),None)
        print corners
        if ret == True:

@@ -5,6 +5,7 @@ import sys
 import json
 from .calibrate import mainCalibrate
 from .calibrate import mainCalibrateProjector
+from .calibrate import mainSnapshot
 from .segment import mainSegment
 
 class BodySnatcher(object):
@@ -18,6 +19,14 @@ class BodySnatcher(object):
         cherrypy.response.headers['Content-Type'] = 'application/json'
         options = json.loads(options) if options != None else options
         return mainCalibrate(options)
+
+    @cherrypy.expose
+    @cherrypy.tools.json_out()
+    def snapshot(self, options = None):
+        cherrypy.response.headers['Content-Type'] = 'application/json'
+        options = json.loads(options) if options != None else options
+        snap =  mainSnapshot(options)
+        return snap
 
     @cherrypy.expose
     @cherrypy.tools.json_in()

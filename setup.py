@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='bodysnatcher',
-      version='0.1',
+      version='0.2',
       description='Locate body parts with depth info',
       url='http://github.com/antlai/bodysnatcher',
       author='Antonio Lain',
