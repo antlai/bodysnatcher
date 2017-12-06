@@ -14,6 +14,10 @@ from pylibfreenect2 import CudaKdePacketPipeline
 FRAME_WIDTH = 512
 FRAME_HEIGHT = 424
 
+CHESS_HEIGHT = 6
+CHESS_WIDTH = 13
+ALL_CHESS = CHESS_HEIGHT*CHESS_WIDTH
+
 #using aaxa P5 projector throw ratio
 F_X = 1.47*1280.
 F_Y = F_X
@@ -107,13 +111,17 @@ image_points = np.array([
     (1120, 160), (1120, 240), (1120, 320), (1120, 400), (1120, 480),(1120,560)],
     dtype="double")
 # scan in x axis first (by row, left to right)
-image_points_long_scan = np.reshape(np.reshape(image_points, [6,13,2],
-                                               order='fortran'), [78,1,2])
+image_points_long_scan = np.reshape(np.reshape(image_points, [CHESS_HEIGHT,
+                                                              CHESS_WIDTH, 2],
+                                               order='fortran'), [ALL_CHESS,1,
+                                                                  2])
 
 #scan in reversed 'y' axis (bottom to top, by column)
-image_points_short_scan = np.reshape(np.flip(np.reshape(image_points, [13,6,2],
+image_points_short_scan = np.reshape(np.flip(np.reshape(image_points,
+                                                        [CHESS_WIDTH,
+                                                         CHESS_HEIGHT, 2],
                                                         order='c'), axis =1),
-                                     [78,1,2])
+                                     [ALL_CHESS,1,2])
 
 
 def compute3DPoints(corners, undistorted, registration):
@@ -134,24 +142,43 @@ def filterNaN(l):
     return [[nanToNull(x), nanToNull(y), nanToNull(z)] for [x,y,z] in l]
 
 
+def shortToLongScan(s, isShortScan):
+    if isShortScan == True:
+        # Returns 3D points,
+        # scanned top to bottom, left-to right using the wide side.
+        # and serialized as a C array (row-major)
+        top2Bot = np.flip(np.reshape(s, [CHESS_WIDTH,CHESS_HEIGHT, 3],
+                                     order='c'), axis =1)
+        return list(itertools.chain(*np.transpose(top2Bot, (1,0,2)).tolist()))
+    else:
+        return s
+
+# from  [[[1, 2]], [[2, 3]], [[3, 5]]] to  [[1, 2], [2, 3], [3, 5]]
+def peelInnerList(p):
+    return filterNaN(list(itertools.chain(*p.tolist())))
+
+
 def orderCorners(corners):
     distance = np.linalg.norm(corners[1:] -corners[:-1], axis=2)
-    shortScan = np.sum(distance[5::6])/12.
-    longScan = np.sum(distance[12::13])/5.
+    shortScan = np.sum(distance[CHESS_HEIGHT-1::CHESS_HEIGHT])/(1.0*
+                                                                (CHESS_WIDTH-1))
+    longScan = np.sum(distance[CHESS_WIDTH-1::CHESS_WIDTH])/(1.0*
+                                                             (CHESS_HEIGHT-1))
     if shortScan > longScan:
         print 'Changing scan order'
         print shortScan, longScan
-        print distance[5::6]
-        print distance[12::13]
+        #print distance[5::6]
+        #print distance[12::13]
+
         # Short side was the principal side to scan because
         # it found the south-west corner first, and started scanning bottom to
         # top, using the skinny side.
         #
         # Otherwise, it would have scanned top to bottom (left-to right) using
         # the wide side.
-        return image_points_short_scan
+        return image_points_short_scan, True
     else:
-        return image_points_long_scan
+        return image_points_long_scan, False
 
 def mainSnapshot(options=None):
     pipeline = CudaKdePacketPipeline()
@@ -207,11 +234,12 @@ def mainCalibrate(options=None):
        flipDepthFrame(undistorted)
 
        gray = cv2.cvtColor(regArray,cv2.COLOR_RGBA2GRAY)
-       ret, corners = cv2.findChessboardCorners(gray, (6, 13),None)
+       ret, corners = cv2.findChessboardCorners(gray, (CHESS_HEIGHT,
+                                                       CHESS_WIDTH),None)
        print corners
        if ret == True:
            print 'got it'
-           points2D = orderCorners(corners)
+           points2D, isShortScan = orderCorners(corners)
            print points2D
            corners2 = cv2.cornerSubPix(gray, corners, (11, 11), (-1,-1),
                                        criteria)
@@ -219,8 +247,8 @@ def mainCalibrate(options=None):
            print points3D
            if (options and options['onlyPoints3D'] == True):
                result = {'points3D':
-                         filterNaN(list(itertools.chain(*points3D.tolist()))),
-                        'points2D': list(itertools.chain(*points2D.tolist()))}
+                         shortToLongScan(peelInnerList(points3D), isShortScan),
+                        'points2D': [CHESS_HEIGHT, CHESS_WIDTH]}
                break
            else:
                distortion= np.zeros((4,1))
@@ -245,11 +273,10 @@ def mainCalibrate(options=None):
                                                                  .tolist())),
                              'projMat': openGLProjMat(),
                              'viewMat': openGLViewMat(rot, trans),
-                             'points2D': list(itertools.chain(*points2D
-                                                              .tolist())),
+                             'points2D': [CHESS_HEIGHT, CHESS_WIDTH],
                              'points3D':
-                             filterNaN(list(itertools.chain(*points3D
-                                                            .tolist())))}
+                             shortToLongScan(peelInnerList(points3D),
+                                             isShortScan)}
                    break
 
 #           img = cv2.drawChessboardCorners(regArray, (6, 13), corners2, ret)
