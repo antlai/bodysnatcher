@@ -274,6 +274,7 @@ def mainCalibrate(options=None):
                              'projMat': openGLProjMat(),
                              'viewMat': openGLViewMat(rot, trans),
                              'points2D': [CHESS_HEIGHT, CHESS_WIDTH],
+                             'nInliers': len(inl),
                              'points3D':
                              shortToLongScan(peelInnerList(points3D),
                                              isShortScan)}

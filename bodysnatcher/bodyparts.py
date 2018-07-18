@@ -212,6 +212,27 @@ def filterLeftRight(mat):
     mask = mat[:,1] > mapThr
     return mat[mask] if (nonzeros > zeros) else  mat[np.logical_not(mask)]
 
+def centroids_slow(registration, undistorted, all):
+    points3D_X = 0.0
+    points3D_Y = 0.0
+    points3D_Z = 0.0
+    count = 0
+    allList = all.tolist()
+    for r, c in allList:
+        x, y, z = registration.getPointXYZ(undistorted, r, c)
+        if not math.isnan(x):
+            points3D_X = points3D_X + x
+            points3D_Y = points3D_Y + y
+            points3D_Z = points3D_Z + z
+            count = count + 1
+    return (points3D_X/count, points3D_Y/count, points3D_Z/count)
+
+def centroids(registration, undistorted, all):
+    points3D = registration.getPointArrayXYZ(undistorted, all)
+    points3D = points3D[~np.isnan(points3D[:, 0])]
+    mean = points3D.mean(0).tolist();
+    return (mean[0], mean[1], mean[2])
+
 def analyze(mat, box, registration, undistorted):
     # input is [FRAME_HEIGHT, FRAME_WIDTH] np.uint8
     #output is [(part, (mean_X, mean_Y, mean_Z))]
@@ -225,22 +246,10 @@ def analyze(mat, box, registration, undistorted):
     for part, _ in pairs:
         #inefficient in general, but typically just a few body parts, e.g., <10
         all = np.argwhere(target == part) + np.array([top, left])
+        all = np.int32(all)
         if (part in BIMODAL_SET):
             all = filterLeftRight(all)
-        points3D_X = 0.0
-        points3D_Y = 0.0
-        points3D_Z = 0.0
-        count = 0
-        allList = all.tolist()
-        for r, c in allList:
-            x, y, z = registration.getPointXYZ(undistorted, r, c)
-            if not math.isnan(x):
-                points3D_X = points3D_X + x
-                points3D_Y = points3D_Y + y
-                points3D_Z = points3D_Z + z
-                count = count + 1
-        centroid = (points3D_X/count, points3D_Y/count, points3D_Z/count)
-        result.append((int(part), centroid))
+        result.append((int(part), centroids(registration, undistorted, all)))
 
     return result
 
